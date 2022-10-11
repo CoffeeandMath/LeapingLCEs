@@ -21,3 +21,5 @@ The code can then be run with the command
 ```ruby
 	./run
 ```
+
+This will run the code and the solution files will be stored in the "solutions/" folder in vtk format. This can be visualized using a variety of viewers, particularly Paraview and VisIt.

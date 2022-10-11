@@ -63,9 +63,6 @@ class ElasticProblem
 {
 public:
 	ElasticProblem();
-
-	void run_iterative();
-	void run_criticalsurface();
 	void run_forwardsolve();
 	double get_Strain_Energy();
 

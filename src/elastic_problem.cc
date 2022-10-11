@@ -10,332 +10,34 @@ namespace Step8
 using namespace dealii;
 
 
-void ElasticProblem::run_criticalsurface(){
-	double hvbyL = 0.03;
 
-	L = 1.0;
-
-
-	corner1(0) = -(L+.1)/2.0;
-	corner1(1) = -L/2.0;
-	corner2(0) = (L+.1)/2.0;
-	corner2(1) = L/2.0;
-
-	offset[0] = 0.0*L;
-	offset[1] = 0.0*L;
-
-	grid_dimensions.resize(2);
-	int GridNum = 32;
-	grid_dimensions[0] = GridNum;
-	grid_dimensions[1] = GridNum;
-	Point<DIM> center(0.0,0.0);
-	double radius = 1.0;
-	//GridGenerator::hyper_cube(triangulation,-L/2,L/2);
-
-	GridGenerator::subdivided_hyper_rectangle (triangulation, grid_dimensions, corner1, corner2, false);
-	//GridGenerator::hyper_ball(triangulation, center, radius, false);
-
-	//triangulation.refine_global(3);
-
-
-	std::cout << "Single Cycle Run with Grid Size: " << grid_dimensions[0] << " x " << grid_dimensions[1] << std::endl;
-
-
-	std::cout << "   Number of active cells:       "
-			<< triangulation.n_active_cells() << std::endl;
-	setup_system();
-
-	std::cout << "   Number of degrees of freedom: " << dof_handler.n_dofs()
-																																																																																<< std::endl;
-
-
-	output_perturbation(0);
-
-	unsigned int Nsteps1 = 150;
-
-	double epsilonmin = -0.03;
-	double epsilonmax = -.2;
-
-	double kappaneggoal = -0.1;
-	int NstepsInit = 250;
-	internal_drag = 0.0;
-	std::vector<double> epsilonvalues = linspace(epsilonmin,epsilonmax,Nsteps1);
-	//std::vector<double> kappavalues = sigmavalues;
-	internal_drag = 100.0;
-	Tensor<1,DIM> LCN_Alignment;
-	Tensor<2,DIM> Iden2D;
-	Iden2D[0][0] = 1.0;
-	Iden2D[1][1] = 1.0;
-
-
-	LCN_Alignment[0] = 1.0;
-
-
-	DirectionTens = outer_product(LCN_Alignment,LCN_Alignment);
-	DirectionTens = DirectionTens/TensorNorm2D(DirectionTens);
-
-
-
-
-	Tensor<2,DIM> As_sc;
-
-	Tensor<2,DIM> Ab_sc;
-
-
-	stab_magnitude = 000.;
-
-
-	std::vector<double> ratio1 = linspace(0.0,1.0,Nsteps1);
-	std::vector<double> ratioInit = linspace(0.0,1.0,NstepsInit);
-	std::vector<double> criticalepsilonvalues;
-	std::vector<double> criticalkappavalues;
-	std::vector<double> higherenergyvalues;
-	std::vector<double> lowerenergyvalues;
-
-
-	int update_counter = 0;
-	int stage;
-
-	stage = 0;
-	As_Global = 0.0*DirectionTens;
-	Ab_Global = 0.0*DirectionTens;
-
-
-
-	double internal_drag_init = internal_drag;
-	evaluation_point = solution;
-	assemble_nonlinear_system(2);
-
-	double scaling_factor = 1.0;
-	//Ab_Global = 0.0001*scaling_factor*DirectionTens;
-
-	Update_Internal_Variables(stage);
-	solve_linear_system();
-
-
-	for (unsigned int i = 0; i < NstepsInit; i++){
-		std::cout << "Stage: " << stage << ", STARTING STEP: " << i << "   --------------------------------------- " << std::endl;
-		//As_Global = ratio1[i]*Light_Magnitude_As*DirectionTens;
-		std::cout << "Epsilon Value: " << ratioInit[i]*epsilonmin << std::endl;
-		std::cout << "Kappa Value: " << ratioInit[i]*kappaneggoal << std::endl;
-
-		epsilon_Global = ratioInit[i]*epsilonmin;
-		kappa_Global = (ratioInit[i]+0.05*(1.0 - ratioInit[i]))*kappaneggoal;
-
-		Update_Internal_Variables(stage);
-		solve_linear_system();
-
-		output_results(update_counter);
-		update_counter++;
-		std::cout << "Updating Internal Variables" << std::endl;
-
-
-	}
-	double dkappa = 0.02*L;
-	double current_kappa = kappaneggoal;
-	Vector<double> snapped_solution;
-	FlipConfigUD(snapped_solution);
-	stage = 1;
-	Vector<double> last_solution = solution;
-
-	//First I need to solve for the first snapped through solution.
-	solution = last_solution;
-
-
-	epsilon_Global = epsilonvalues[0];
-
-	bool did_snapthrough_happen = false;
-	Vector<double> last_iteration_solution = solution;
-	double change_in_solution_norm = 1.0;
-	bool firstsolve = true;
-	while (!did_snapthrough_happen) {
-		std::cout << "Stage: " << stage << ", STARTING STEP: " << 0 << "   --------------------------------------- " << std::endl;
-		//As_Global = ratio1[i]*Light_Magnitude_As*DirectionTens;
-		current_kappa += dkappa;
-		std::cout << "Epsilon Value: " << epsilonvalues[0] << std::endl;
-		std::cout << "Kappa Value: " << current_kappa << std::endl;
-		std::cout << "Counter: " << update_counter << std::endl;
-
-
-		kappa_Global = current_kappa;
-		Update_Internal_Variables(stage);
-		last_iteration_solution = solution;
-		int cmax = 20;
-		int solvenum = solve_linear_system_critical(cmax);
-		double last_change_in_solution_norm = change_in_solution_norm;
-		change_in_solution_norm = 0.0;
-		for (unsigned int k = 0; k < solution.size(); k++){
-			change_in_solution_norm += pow(solution(k) - last_iteration_solution(k),2.0);
-		}
-		change_in_solution_norm = sqrt(change_in_solution_norm)/solution.size();
-
-
-
-		double relative_solution_change = change_in_solution_norm/last_change_in_solution_norm;
-		std::cout << "Relative Change in Solution: " << relative_solution_change << std::endl;
-
-		if ((!firstsolve && (relative_solution_change > 20.0)) || cmax == solvenum) {
-			did_snapthrough_happen = true;
-		}
-		output_results(update_counter);
-		update_counter++;
-		std::cout << "Updating Internal Variables" << std::endl;
-		firstsolve = false;
-
-	}
-	solution = snapped_solution;
-	int solvenum2 = solve_linear_system_critical(20);
-	snapped_solution = solution;
-	output_results(update_counter);
-	update_counter++;
-
-	last_solution = last_iteration_solution;
-
-	criticalkappavalues.push_back(current_kappa*L);
-	criticalepsilonvalues.push_back(epsilonvalues[0]);
-	std::cout << "Added Critical Points to List" << std::endl;
-	OutputVector(criticalepsilonvalues,criticalkappavalues,"criticalvalues.csv");
-
-	current_kappa -= 10.0*dkappa;
-
-
-
-
-
-	Vector<double> solution_temp = solution;
-	solution = last_iteration_solution;
-	higherenergyvalues.push_back(get_Strain_Energy());
-	solution = snapped_solution;
-	lowerenergyvalues.push_back(get_Strain_Energy());
-
-	solution = solution_temp;
-
-	OutputVector(criticalepsilonvalues,higherenergyvalues,"higherenergyvalues.csv");
-	OutputVector(criticalepsilonvalues,lowerenergyvalues,"lowerenergyvalues.csv");
-
-
-
-	// Then, I will solve, iterating the curvature until I hit detect a snap through.
-	//This can happen either through hitting a solve cap, or with the solution ratio
-
-	for (unsigned int i = 1; i < Nsteps1; i++) {
-		solution = last_solution;
-
-
-		epsilon_Global = epsilonvalues[i];
-
-		did_snapthrough_happen = false;
-		last_iteration_solution = solution;
-		change_in_solution_norm = 1.0;
-		bool firstsolve = true;
-		while (!did_snapthrough_happen) {
-			std::cout << "Stage: " << stage << ", STARTING STEP: " << i << "   --------------------------------------- " << std::endl;
-			//As_Global = ratio1[i]*Light_Magnitude_As*DirectionTens;
-			current_kappa += dkappa;
-			std::cout << "Epsilon Value: " << epsilonvalues[i] << std::endl;
-			std::cout << "Kappa Value: " << current_kappa << std::endl;
-			std::cout << "Counter: " << update_counter << std::endl;
-
-
-			kappa_Global = current_kappa;
-			Update_Internal_Variables(stage);
-			last_iteration_solution = solution;
-			int cmax = 20;
-			int solvenum = solve_linear_system_critical(cmax);
-			double last_change_in_solution_norm = change_in_solution_norm;
-			change_in_solution_norm = 0.0;
-			for (unsigned int k = 0; k < solution.size(); k++){
-				change_in_solution_norm += pow(solution(k) - last_iteration_solution(k),2.0);
-			}
-			change_in_solution_norm = sqrt(change_in_solution_norm)/solution.size();
-
-
-
-			double relative_solution_change = change_in_solution_norm/last_change_in_solution_norm;
-			std::cout << "Relative Change in Solution: " << relative_solution_change << std::endl;
-
-			if ((!firstsolve && (relative_solution_change > 10.0)) || cmax == solvenum) {
-				did_snapthrough_happen = true;
-			}
-			output_results(update_counter);
-			update_counter++;
-			std::cout << "Updating Internal Variables" << std::endl;
-			firstsolve = false;
-
-		}
-
-		last_solution = last_iteration_solution;
-
-		std::cout << "Solving for Snapped Solution" << std::endl;
-		solution = snapped_solution;
-		kappa_Global = (current_kappa + 20.*dkappa);
-		Update_Internal_Variables(stage);
-		int solvenum = solve_linear_system_critical(1000);
-		snapped_solution = solution;
-		kappa_Global = current_kappa;
-		Update_Internal_Variables(stage);
-		solvenum = solve_linear_system_critical(1000);
-
-		std::cout << "Snapped Solution Solved For" << std::endl;
-		output_results(update_counter);
-		update_counter++;
-
-
-
-		criticalkappavalues.push_back(current_kappa*L);
-		criticalepsilonvalues.push_back(epsilonvalues[i]);
-		std::cout << "Added Critical Points to List" << std::endl;
-		OutputVector(criticalepsilonvalues,criticalkappavalues,"criticalvalues.csv");
-
-		solution_temp = solution;
-		solution = last_iteration_solution;
-		higherenergyvalues.push_back(get_Strain_Energy());
-		solution = snapped_solution;
-		lowerenergyvalues.push_back(get_Strain_Energy());
-
-		solution = solution_temp;
-
-		OutputVector(criticalepsilonvalues,higherenergyvalues,"higherenergyvalues.csv");
-		OutputVector(criticalepsilonvalues,lowerenergyvalues,"lowerenergyvalues.csv");
-
-		criticalkappavalues[i] = current_kappa*L;
-		current_kappa -= 10.0*dkappa;
-
-
-
-	}
-
-}
 
 
 void ElasticProblem::run_forwardsolve(){
-	double hvbyL = 0.03;
 
-	L = 1.0;
+	// Setting the geometric parameters
+	L = 1.0; // Length of side
 
-
+	// Setting edge locations of the rectangle
 	corner1(0) = -(L+.1)/2.0;
 	corner1(1) = -L/2.0;
 	corner2(0) = (L+.1)/2.0;
 	corner2(1) = L/2.0;
 
+	// Offsetting the defect center
 	offset[0] = 0.0*L;
 	offset[1] = 0.0*L;
 
+	// Setting up the discretization to 32 elements per edge
 	grid_dimensions.resize(2);
 	int GridNum = 32;
 	grid_dimensions[0] = GridNum;
 	grid_dimensions[1] = GridNum;
-	Point<DIM> center(0.0,0.0);
-	double radius = 1.0;
-	//GridGenerator::hyper_cube(triangulation,-L/2,L/2);
+
 
 	GridGenerator::subdivided_hyper_rectangle (triangulation, grid_dimensions, corner1, corner2, false);
-	//GridGenerator::hyper_ball(triangulation, center, radius, false);
 
-	//triangulation.refine_global(3);
-
-
+	// Outputting basic system information
 	std::cout << "Single Cycle Run with Grid Size: " << grid_dimensions[0] << " x " << grid_dimensions[1] << std::endl;
 
 
@@ -343,29 +45,27 @@ void ElasticProblem::run_forwardsolve(){
 			<< triangulation.n_active_cells() << std::endl;
 	setup_system();
 
-	std::cout << "   Number of degrees of freedom: " << dof_handler.n_dofs()
-																																																																																<< std::endl;
+	std::cout << "   Number of degrees of freedom: " << dof_handler.n_dofs() << std::endl;
 
 
-	output_perturbation(0);
 
-	unsigned int Nsteps1 = 150;
+	// Sets the spontaneous in plane strain
+	double epsilonmax = -0.03;
 
-	double epsilonmin = -0.03;
-	double epsilonmax = -.2;
-
+	// Sets the initial spontaneous curvature
 	double kappaneggoal = -0.1;
+
+	// Number of steps in the initialization phase
+	int Nsteps1 = 150;
 	int NstepsInit = 250;
-	internal_drag = 0.0;
-	std::vector<double> epsilonvalues = linspace(epsilonmin,epsilonmax,Nsteps1);
-	//std::vector<double> kappavalues = sigmavalues;
+	// Setting internal drag (penalization of deformation from one time step to the other)
 	internal_drag = 100.0;
 	Tensor<1,DIM> LCN_Alignment;
 	Tensor<2,DIM> Iden2D;
 	Iden2D[0][0] = 1.0;
 	Iden2D[1][1] = 1.0;
 
-
+	// Sets the orientation of the liquid crystal network alignment in the r, theta coordinate system
 	LCN_Alignment[0] = 1.0;
 
 
@@ -385,10 +85,7 @@ void ElasticProblem::run_forwardsolve(){
 
 	std::vector<double> ratio1 = linspace(0.0,1.0,Nsteps1);
 	std::vector<double> ratioInit = linspace(0.0,1.0,NstepsInit);
-	std::vector<double> criticalepsilonvalues;
-	std::vector<double> criticalkappavalues;
-	std::vector<double> higherenergyvalues;
-	std::vector<double> lowerenergyvalues;
+
 
 
 	int update_counter = 0;
@@ -405,7 +102,7 @@ void ElasticProblem::run_forwardsolve(){
 	assemble_nonlinear_system(2);
 
 	double scaling_factor = 1.0;
-	//Ab_Global = 0.0001*scaling_factor*DirectionTens;
+
 
 	Update_Internal_Variables(stage);
 	solve_linear_system();
@@ -414,10 +111,10 @@ void ElasticProblem::run_forwardsolve(){
 	for (unsigned int i = 0; i < NstepsInit; i++){
 		std::cout << "Stage: " << stage << ", STARTING STEP: " << i << "   --------------------------------------- " << std::endl;
 		//As_Global = ratio1[i]*Light_Magnitude_As*DirectionTens;
-		std::cout << "Epsilon Value: " << ratioInit[i]*epsilonmin << std::endl;
+		std::cout << "Epsilon Value: " << ratioInit[i]*epsilonmax << std::endl;
 		std::cout << "Kappa Value: " << ratioInit[i]*kappaneggoal << std::endl;
 
-		epsilon_Global = ratioInit[i]*epsilonmin;
+		epsilon_Global = ratioInit[i]*epsilonmax;
 		kappa_Global = (ratioInit[i]+0.05*(1.0 - ratioInit[i]))*kappaneggoal;
 
 		Update_Internal_Variables(stage);
@@ -440,7 +137,7 @@ void ElasticProblem::run_forwardsolve(){
 	solution = last_solution;
 
 
-	epsilon_Global = epsilonvalues[0];
+	epsilon_Global = epsilonmax;
 
 	bool did_snapthrough_happen = false;
 	Vector<double> last_iteration_solution = solution;
@@ -450,7 +147,7 @@ void ElasticProblem::run_forwardsolve(){
 		std::cout << "Stage: " << stage << ", STARTING STEP: " << 0 << "   --------------------------------------- " << std::endl;
 		//As_Global = ratio1[i]*Light_Magnitude_As*DirectionTens;
 		current_kappa += dkappa;
-		std::cout << "Epsilon Value: " << epsilonvalues[0] << std::endl;
+		std::cout << "Epsilon Value: " << epsilonmax << std::endl;
 		std::cout << "Kappa Value: " << current_kappa << std::endl;
 		std::cout << "Counter: " << update_counter << std::endl;
 
@@ -490,7 +187,7 @@ void ElasticProblem::run_forwardsolve(){
 		std::cout << "Stage: " << stage << ", STARTING STEP: " << 0 << "   --------------------------------------- " << std::endl;
 		//As_Global = ratio1[i]*Light_Magnitude_As*DirectionTens;
 		current_kappa += dkappa;
-		std::cout << "Epsilon Value: " << epsilonvalues[0] << std::endl;
+		std::cout << "Epsilon Value: " << epsilonmax << std::endl;
 		std::cout << "Kappa Value: " << current_kappa << std::endl;
 		std::cout << "Counter: " << update_counter << std::endl;
 
@@ -620,157 +317,6 @@ int ElasticProblem::solve_linear_system_critical(int cmax){
 
 	return cntr;
 }
-
-void ElasticProblem::run_iterative()
-{
-
-	std::vector<double> Tvals;
-	std::vector<double> sigmavalues;
-	std::vector<double> kappavalues;
-	ReadCurvatureFiles(Tvals,sigmavalues,kappavalues);
-
-
-
-	L = 1.0;
-
-
-	corner1(0) = -(L+.1)/2.0;
-	corner1(1) = -L/2.0;
-	corner2(0) = (L+.1)/2.0;
-	corner2(1) = L/2.0;
-
-	grid_dimensions.resize(2);
-	int GridNum = 36;
-	grid_dimensions[0] = GridNum;
-	grid_dimensions[1] = GridNum;
-	//GridGenerator::hyper_cube(triangulation,-L/2,L/2);
-
-	GridGenerator::subdivided_hyper_rectangle (triangulation, grid_dimensions, corner1, corner2, false);
-
-
-	//triangulation.refine_global(refinelevel);
-
-
-	std::cout << "Single Cycle Run with Grid Size: " << grid_dimensions[0] << " x " << grid_dimensions[1] << std::endl;
-
-
-	std::cout << "   Number of active cells:       "
-			<< triangulation.n_active_cells() << std::endl;
-	setup_system();
-
-	std::cout << "   Number of degrees of freedom: " << dof_handler.n_dofs()
-																																																																															<< std::endl;
-
-
-	output_perturbation(0);
-
-	unsigned int Nsteps1 = Tvals.size();
-
-
-	T = Tvals.back();
-
-	dT = Tvals[1] - Tvals[0];
-
-	internal_drag = 0.05/dT;
-	Tensor<1,DIM> LCN_Alignment;
-	Tensor<2,DIM> Iden2D;
-	Iden2D[0][0] = 1.0;
-	Iden2D[1][1] = 1.0;
-
-
-	LCN_Alignment[0] = 1.0;
-
-
-	DirectionTens = (1.0/6.0)*Iden2D - 0.5 * outer_product(LCN_Alignment,LCN_Alignment);
-	DirectionTens = DirectionTens/TensorNorm2D(DirectionTens);
-
-	DirectionTens[0][0] = 1.0;
-	DirectionTens[1][0] = 0.0;
-	DirectionTens[0][1] = 0.0;
-	DirectionTens[1][1] = 0.0;
-
-
-
-	Tensor<2,DIM> As_sc;
-	As_sc[0][0] = -0.2;
-	As_sc[1][1] = -0.05;
-
-	Tensor<2,DIM> Ab_sc;
-	Ab_sc[0][0] = 0.5;
-	Ab_sc[1][1] = 0.5;
-	Ab_Global = Ab_sc;
-
-
-	Tensor<2,DIM> LCNDirec;
-	LCNDirec[0][0] = 1.0;
-
-	stab_magnitude = 000.;
-
-
-	std::vector<double> ratio1 = linspace(0.0,1.0,Nsteps1);
-
-
-	int update_counter = 0;
-	int stage;
-
-	stage = 0;
-	As_Global = 0.0*DirectionTens;
-
-
-
-	stage = 0;
-	Light_Magnitude_As = .0;
-	Light_Magnitude_Ab = 0.00;
-
-	double internal_drag_init = internal_drag;
-	evaluation_point = solution;
-	assemble_nonlinear_system(2);
-
-	double scaling_factor = 0.750;
-	Ab_Global = scaling_factor*kappavalues[0]*DirectionTens;
-
-	Update_Internal_Variables(stage);
-	solve_linear_system();
-	for (unsigned int i = 0; i < Nsteps1; i++){
-		std::cout << "Stage: " << stage << ", STARTING STEP: " << i << "   --------------------------------------- " << std::endl;
-		//As_Global = ratio1[i]*Light_Magnitude_As*DirectionTens;
-		std::cout << "Sigma Value: " << scaling_factor*sigmavalues[i] << std::endl;
-		std::cout << "Kappa Value: " << scaling_factor*kappavalues[i] << std::endl;
-
-		/*
-		if (i > 140 && i < 150) {
-			internal_drag = 20.0*internal_drag_init;
-		} else {
-			internal_drag = internal_drag_init;
-		}
-		 */
-		/*
-		if (i > 318 && i < 330) {
-			internal_drag = 100.0*internal_drag_init;
-		} else {
-			internal_drag = internal_drag_init;
-		}
-		 */
-		As_Global = scaling_factor*sigmavalues[i]*DirectionTens;
-		Ab_Global = scaling_factor*kappavalues[i]*DirectionTens;
-
-		Update_Internal_Variables(stage);
-		solve_linear_system();
-
-		output_results(update_counter);
-		update_counter++;
-		std::cout << "Updating Internal Variables" << std::endl;
-
-
-	}
-
-
-
-
-
-
-}
-
 
 
 void ElasticProblem::As_function(const std::vector<Point<DIM>> &points,
