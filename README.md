@@ -8,13 +8,16 @@ After Deal.II is installed, navigate to the source directory (on the level of th
 
 
 ```ruby
-   mkdir build && cd build/
+	mkdir build && cd build/
 	cmake ..
 	make
 	mkdir solutions
 ```
 
 
-
-
 The first three commands make and build the project while the last makes a folder for the solutions. Note that cmake may throw an error and require you to point to the Deal.II library manually.
+
+The code can then be run with the command
+```ruby
+	./run
+```
